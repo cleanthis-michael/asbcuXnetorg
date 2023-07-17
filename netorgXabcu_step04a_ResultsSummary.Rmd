@@ -1,0 +1,387 @@
+---
+title: Associations between Functional Brain Network Organization and Subtypes of
+  Antisocial Behavior
+author: "Cleanthis Michael"
+date: "July 2023"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+```{r libraries, include = FALSE}
+rm(list=ls())
+
+# Create List of Packages & Install/Load
+list.of.packages <- c("dplyr", "ggpubr", "ggplot2", "ggsignif", "interactions", "MplusAutomation",
+                      "rstudioapi", "vtable", "knitr")
+
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+lapply(list.of.packages, require, character.only = TRUE)
+
+# Set Working Directory
+# current_path <- getActiveDocumentContext()$path 
+# setwd(dirname(current_path))
+# print( getwd() )
+
+```
+
+## Project Aims
+This project uses MTwiNS data to investigate the associations between functional brain network organization (pseudo-rest) with antisocial behavior, callous-unemotional traits, and their interaction. We look at measures of network topology across the following three scales:\
+1. Whole-Brain: (a) gamma, (b) lambda, (c) sigma, and (d) modularity.\
+2. Isolated Networks: (a) gamma, (b) lambda, and (c) sigma. These analyses focus on the fronto-parietal, salience/ventral attention, and default mode networks.\
+3. Networks in the Whole-Brain System: (a) degree of fronto-parietal, salience/ventral attention, default mode, and subcortical.\
+
+## Additional Information
+Operationalization of Variables:\
+1. Antisocial Behavior: Self-Report Total SRD (no drugs)\
+2. CU Traits: Self-Report Total ICU (reverse scoring half items, dropping items 10 and 23)\
+
+The present analyses include 500 participants. Specifically, we drop one outlier for antisocial behavior (>60 on SRD), and then we conduct a complete case analysis (i.e., drop participants with missing data on ASB, CU, or covariates). The only covariate with additional missing data is family income (n = 5). We are dropping participants with missing data because some models do not converge when we try to include participants with missing data.
+
+## Note on Windsorization
+I conducted the analyses once with the original data and once after windsorizing BOTH mental health and graph theory data at 3 SD's above and below the mean. The windsorization only seems to change the interaction effects (e.g., degree of FPN is no longer significant).
+
+
+```{r data, echo = FALSE}
+# Read in Data
+corr_data <- data.frame(read.csv("./analyses/netorgXabcu_zero-order-correlations.csv", sep = ",", header = TRUE))
+corr_data$vars <- paste(corr_data$var2, corr_data$var1, sep = "_")
+
+final_data <- data.frame(read.csv("./analyses/netorgXabcu_alldata.csv", sep = ",", header = TRUE))
+final_data_wnsr <- data.frame(read.csv("./analyses/netorgXabcu_alldata_Windsorized.csv", sep = ",", header = TRUE))
+
+asb_data <- data.frame(read.csv("./analyses/mplus_ModelOutputs/mplus_asb_07.14.23.csv"))
+asb_data_wnsr <- data.frame(read.csv("./analyses/mplus_ModelOutputs/mplus_asb_Windsorized_07.14.23.csv"))
+cu_data <- data.frame(read.csv("./analyses/mplus_ModelOutputs/mplus_cu_07.14.23.csv"))
+cu_data_wnsr <- data.frame(read.csv("./analyses/mplus_ModelOutputs/mplus_cu_Windsorized_07.14.23.csv"))
+asbXcu_data <- data.frame(read.csv("./analyses/mplus_ModelOutputs/mplus_asbXcu_07.14.23.csv"))
+asbXcu_data_wnsr <- data.frame(read.csv("./analyses/mplus_ModelOutputs/mplus_asbXcu_Windsorized_07.14.23.csv"))
+
+```
+
+------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------
+
+# Zero-Order Correlations
+I initially conducted Pearson correlations to assess the zero-order association between antisocial behavior (total SRD with no drugs) and CU traits (twin self-report) with any graph metric (uncorrected for multiple comparisons):
+
+``` {r correlations, echo = FALSE, out.width = '300%'}
+graph_metrics <- c("Global_Clustering_Mean_best", "Global_Eff_best",
+                   "Gamma_AUC", "Lambda_AUC", "Sigma_AUC", "Maximized_Modularity_Best",
+                   "FrontoParietal_Degree_Mean_AUC_best", "Default_Degree_Mean_AUC_best",
+                   "SalVentAttn_Degree_Mean_AUC_best", "Subcortical_Degree_Mean_AUC_best",
+                   "fpn_Global_Clustering_Mean_best", "fpn_Global_Eff_best",
+                   "fpn_Gamma_AUC", "fpn_Lambda_AUC", "fpn_Sigma_AUC",
+                   "dmn_Global_Clustering_Mean_best", "dmn_Global_Eff_best",
+                   "dmn_Gamma_AUC", "dmn_Lambda_AUC", "dmn_Sigma_AUC",
+                   "svan_Global_Clustering_Mean_best", "svan_Global_Eff_best",
+                   "svan_Gamma_AUC", "svan_Lambda_AUC", "svan_Sigma_AUC")
+
+mhealth_metrics <- c("wav2_asb", "wav2_cuSelf")
+
+corr_sig <- filter(corr_data, (corr_data$p.value < .05) & (corr_data$var1 %in% graph_metrics) & (corr_data$var2 %in% mhealth_metrics))
+kable(corr_sig[,1:4], digits = 3, align = "l") %>% kable_styling(full_width = TRUE)
+
+```
+
+
+
+------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------
+
+# Multiple Regressions
+## Antisocial Behavior x Callous-Unemotional Traits
+I conducted multiple regressions using complex models (MLR estimator) in Mplus, which adjust parameter standard errors for family clustering. These models included each graph theory metric as an outcome. I then conducted the analyses (a) with antisocial behavior, (b) with CU traits, and (c) with ASB, CU, and their interaction in separate models. These models additionally controlled for age, sex (male vs female), race (White vs Non-White), mean FD, scanner sequence (multiband vs spiral), and family monthly income.\
+
+FDR Adjustments:\
+1. Whole-Brain: control for 4 comparisons (gamma, lambda, sigma, modularity).\
+2. Network: control for 3 comparisons for each network (gamma, lambda, sigma x FPN, DMN, SN/VAN).\
+3. Network Whole-Brain: control for 4 comparisons (degree x 4 networks of FPN, DMN, SN/VAN, Subcortical).
+
+
+### Neural Correlates of Antisocial Behavior
+#### Main-Effects Models
+Antisocial behavior is associated with lower degree of FPN before and after FDR adjustments.
+
+``` {r asb_mainEffects, echo = FALSE, out.width = '200%'}
+#neur_asb <- filter(asb_data, param == "w2_asb")
+neur_asb <- filter(asb_data, pval < .05 & param == "w2_asb")
+kable(neur_asb[,c(2,6,7,12,13,14)], caption = "Non-Windsorized") %>% kable_styling(full_width = TRUE)
+
+ggplot(aes(x = wav2_asb, y = FrontoParietal_Degree_Mean_AUC_best), data = final_data) +
+  geom_point(size = 1.5, color = "#E89A29", alpha = 0.6) +
+  geom_smooth(method = "lm", se = TRUE, color = "#E87529") +
+  theme_minimal() + xlab("Antisocial Behavior") + ylab("Degree of FPN") +
+  theme(axis.text = element_text(size = 12), axis.title = element_text(size = 17))
+
+```
+
+
+#### Main-Effects Models (Windsorized)
+Antisocial behavior is associated with lower degree of FPN before and after FDR adjustments.
+
+``` {r asb_mainEffects_wnsr, echo = FALSE, out.width = '200%'}
+neur_asb <- filter(asb_data_wnsr, pval < .05 & param == "w2_asb")
+kable(neur_asb[,c(2,6,7,12,13,14)], caption = "Windsorized") %>% kable_styling(full_width = TRUE)
+
+```
+
+
+#### Interaction Models (ASB x CU)
+In the interaction models, this effect remains significant.
+
+``` {r asb_Interactions, echo = FALSE}
+neur_asb <- filter(asbXcu_data, pval < .05 & param == "w2_asb")
+kable(neur_asb[,c(2,6,7,12,13,14)], caption = "Non-Windsorized") %>% kable_styling(full_width = TRUE)
+
+```
+
+#### Interaction Models (ASB x CU)
+In the interaction models, this effect remains significant.
+
+``` {r asb_Interactions_wnsr, echo = FALSE}
+neur_asb <- filter(asbXcu_data_wnsr, pval < .05 & param == "w2_asb")
+kable(neur_asb[,c(2,6,7,12,13,14)], caption = "Windsorized") %>% kable_styling(full_width = TRUE)
+
+```
+
+
+#### Summary of Neural Correlates of Antisocial Behavior
+Greater antisocial behavior is associated with lower degree of the fronto-parietal network.
+
+------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------
+
+
+### Neural Correlates of CU Traits
+#### Main-Effects Models
+From the main analyses, higher CU traits are associated with:\
+1. Lower lambda of DMN, gamma of FPN, and sigma of FPN before and after FDR.\
+2. Lower degree of FPN and SN/VAN before, but not after, FDR.\
+
+From the supplemental analyses (uncorrected), we also see associations with DMN efficiency and FPN clustering.
+
+``` {r cu_mainEffects, echo = FALSE, out.width = '200%'}
+#neur_cu <- filter(cu_data, param == "w2_cusr")
+neur_cu <- filter(cu_data, pval < .05 & param == "w2_cusr")
+kable(neur_cu[,c(2,6,7,12,13,14)], caption = "Non-Windsorized") %>% kable_styling(full_width = TRUE)
+
+ggplot(aes(x = wav2_cuSelf, y = dmn_Lambda_AUC), data = final_data) +
+  geom_point(size = 1.5, color = "#981AF6", alpha = 0.6) +
+  geom_smooth(method = "lm", se = TRUE, color = "#7D05D6") +
+  theme_minimal() + xlab("Antisocial Behavior") + ylab("Lambda of DMN") +
+  theme(axis.text = element_text(size = 12), axis.title = element_text(size = 17))
+
+ggplot(aes(x = wav2_cuSelf, y = fpn_Gamma_AUC), data = final_data) +
+  geom_point(size = 1.5, color = "#981AF6", alpha = 0.6) +
+  geom_smooth(method = "lm", se = TRUE, color = "#7D05D6") +
+  theme_minimal() + xlab("Antisocial Behavior") + ylab("Gamma of FPN") +
+  theme(axis.text = element_text(size = 12), axis.title = element_text(size = 17))
+
+ggplot(aes(x = wav2_cuSelf, y = fpn_Sigma_AUC), data = final_data) +
+  geom_point(size = 1.5, color = "#981AF6", alpha = 0.6) +
+  geom_smooth(method = "lm", se = TRUE, color = "#7D05D6") +
+  theme_minimal() + xlab("Antisocial Behavior") + ylab("Sigma of FPN") +
+  theme(axis.text = element_text(size = 12), axis.title = element_text(size = 17))
+
+```
+
+
+#### Main-Effects Models (Windsorized)
+These associations are the same with windsorized data.
+
+``` {r cu_mainEffects_wnsr, echo = FALSE, out.width = '200%'}
+neur_cu <- filter(cu_data_wnsr, pval < .05 & param == "w2_cusr")
+kable(neur_cu[,c(2,6,7,12,13,14)], caption = "Windsorized") %>% kable_styling(full_width = TRUE)
+
+```
+
+
+#### Interaction Models (ASB x CU)
+In the interaction models, these effects remain significant.
+
+``` {r cu_Interactions, echo = FALSE}
+neur_cu <- filter(asbXcu_data, pval < .05 & param == "w2_cusr")
+kable(neur_cu[,c(2,6,7,12,13,14)], caption = "Non-Windsorized") %>% kable_styling(full_width = TRUE)
+
+```
+
+#### Interaction Models (ASB x CU)
+In the interaction models, these effects remain significant.
+
+``` {r cu_Interactions_wnsr, echo = FALSE}
+neur_cu <- filter(asbXcu_data_wnsr, pval < .05 & param == "w2_cusr")
+kable(neur_cu[,c(2,6,7,12,13,14)], caption = "Windsorized") %>% kable_styling(full_width = TRUE)
+
+```
+
+
+#### Summary of Neural Correlates of Callous-Unemotional Traits
+Greater CU traits are associated with topological properties of the fronto-parietal and default mode networks.
+
+
+------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------
+
+
+### Interactions between ASB and CU
+#### Non-Windsorized Data
+CU traits moderate the association between antisocial behavior and:\
+1. Degree of FPN. Antisocial behavior is negatively associated with the degree of FPN at low and mean, but not high, CU traits.\
+2. Gamma of DMN. Simple slopes are not significant.\
+3. Sigma of DMN. Simple slopes are not significant.\
+4. Lambda of FPN. Antisocial behavior is negatively associated with lambda of FPN at high, but not mean or low, CU traits.\
+5. Lambda of SN/VAN. Antisocial behavior is negatively associated with lambda of SN/VAN at low, but not mean or high, CU traits.\
+
+
+``` {r abXcu_Interactions, echo = FALSE}
+neur_abXcu <- filter(asbXcu_data, pval < .05 & param == "asbxcu")
+kable(neur_abXcu[,c(2,6,7,12,13,14)], caption = "Non-Windsorized") %>% kable_styling(full_width = TRUE)
+
+# Simple Slopes 1
+deg_fpn_slopes <- filter(asbXcu_data, (graphmetric == "deg_fpn") & (param == "simp_hi" | param == "simp_mn" | param == "simp_lo"))
+kable(deg_fpn_slopes[c(2:4,12,13)], caption = "Simple Slopes (Degree of FPN)") %>% kable_styling(full_width = TRUE)
+
+degree_fpn_model <- lm(FrontoParietal_Degree_Mean_AUC_best ~ wav2_asb + wav2_cuSelf + wav2_asb:wav2_cuSelf + twin_age_mo + twin_sex + race + Mutliband + meanFD + pc_moincome, data = final_data)
+
+#sim_slopes(degree_fpn_model, pred = wav2_cuSelf, modx = wav2_asb, jnplot = FALSE)
+ros <- data.frame(xmin = 0, xmax = 4.89,
+                  ymin = 1930, ymax = 3500)
+
+interact_plot(degree_fpn_model, pred = wav2_asb, modx = wav2_cuSelf,
+                                interval = TRUE, rug = TRUE, rug.sides = "bl",
+                                modx.labels = c("-1 SD", "Mean", "+1 SD"),
+                                colors = c("#F3DD62", "#F3C062", "#F6271A"),
+                                x.label = "Antisocial Behavior", y.label = "Degree of FPN",
+                                legend.main = "CU Traits", data = final_data) +
+  geom_rect(data=ros, aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax),fill="lightgray", linetype=0, alpha=.3, inherit.aes=FALSE) +
+  theme_minimal() +
+  theme(axis.text = element_text(size = 12), axis.title = element_text(size = 17))
+
+
+# Simple Slopes 2
+gam_dmn_slopes <- filter(asbXcu_data, (graphmetric == "gam_dmn") & (param == "simp_hi" | param == "simp_mn" | param == "simp_lo"))
+kable(gam_dmn_slopes[c(2:4,12,13)], caption = "Simple Slopes (Gamma of DMN)") %>% kable_styling(full_width = TRUE)
+
+gam_dmn_model <- lm(dmn_Gamma_AUC ~ wav2_asb + wav2_cuSelf + wav2_asb:wav2_cuSelf + twin_age_mo + twin_sex + race + Mutliband + meanFD + pc_moincome, data = final_data)
+
+#sim_slopes(gam_dmn_model, pred = wav2_cuSelf, modx = wav2_asb, jnplot = FALSE)
+ros <- data.frame(xmin = 0, xmax = 1.25,
+                  ymin = 40, ymax = 140)
+
+interact_plot(gam_dmn_model, pred = wav2_asb, modx = wav2_cuSelf,
+                                interval = TRUE, rug = TRUE, rug.sides = "bl",
+                                modx.labels = c("-1 SD", "Mean", "+1 SD"),
+                                colors = c("#F3DD62", "#F3C062", "#F6271A"),
+                                x.label = "Antisocial Behavior", y.label = "Gamma of DMN",
+                                legend.main = "CU Traits", data = final_data) +
+  geom_rect(data=ros, aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax),fill="lightgray", linetype=0, alpha=.3, inherit.aes=FALSE) +
+  theme_minimal() +
+  theme(axis.text = element_text(size = 12), axis.title = element_text(size = 17))
+
+
+# Simple Slopes 3
+sig_dmn_slopes <- filter(asbXcu_data, (graphmetric == "sig_dmn") & (param == "simp_hi" | param == "simp_mn" | param == "simp_lo"))
+kable(sig_dmn_slopes[c(2:4,12,13)], caption = "Simple Slopes (Sigma of DMN)") %>% kable_styling(full_width = TRUE)
+
+sig_dmn_model <- lm(dmn_Sigma_AUC ~ wav2_asb + wav2_cuSelf + wav2_asb:wav2_cuSelf + twin_age_mo + twin_sex + race + Mutliband + meanFD + pc_moincome, data = final_data)
+
+#sim_slopes(sig_dmn_model, pred = wav2_cuSelf, modx = wav2_asb, jnplot = FALSE)
+ros <- data.frame(xmin = 0, xmax = 0,
+                  ymin = 60, ymax = 60)
+
+interact_plot(sig_dmn_model, pred = wav2_asb, modx = wav2_cuSelf,
+                                interval = TRUE, rug = TRUE, rug.sides = "bl",
+                                modx.labels = c("-1 SD", "Mean", "+1 SD"),
+                                colors = c("#F3DD62", "#F3C062", "#F6271A"),
+                                x.label = "Antisocial Behavior", y.label = "Sigma of DMN",
+                                legend.main = "CU Traits", data = final_data) +
+  geom_rect(data=ros, aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax),fill="lightgray", linetype=0, alpha=.3, inherit.aes=FALSE) +
+  theme_minimal() +
+  theme(axis.text = element_text(size = 12), axis.title = element_text(size = 17))
+
+
+# Simple Slopes 4
+lam_fpn_slopes <- filter(asbXcu_data, (graphmetric == "lam_fpn") & (param == "simp_hi" | param == "simp_mn" | param == "simp_lo"))
+kable(lam_fpn_slopes[c(2:4,12,13)], caption = "Simple Slopes (Lambda of FPN)") %>% kable_styling(full_width = TRUE)
+
+lam_fpn_model <- lm(fpn_Lambda_AUC ~ wav2_asb + wav2_cuSelf + wav2_asb:wav2_cuSelf + twin_age_mo + twin_sex + race + Mutliband + meanFD + pc_moincome, data = final_data)
+
+#sim_slopes(lam_fpn_model, pred = wav2_cuSelf, modx = wav2_asb, jnplot = FALSE)
+ros <- data.frame(xmin = 0, xmax = 1.11,
+                  ymin = 39, ymax = 57)
+
+interact_plot(lam_fpn_model, pred = wav2_asb, modx = wav2_cuSelf,
+                                interval = TRUE, rug = TRUE, rug.sides = "bl",
+                                modx.labels = c("-1 SD", "Mean", "+1 SD"),
+                                colors = c("#F3DD62", "#F3C062", "#F6271A"),
+                                x.label = "Antisocial Behavior", y.label = "Lambda of FPN",
+                                legend.main = "CU Traits", data = final_data) +
+  geom_rect(data=ros, aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax),fill="lightgray", linetype=0, alpha=.3, inherit.aes=FALSE) +
+  theme_minimal() +
+  theme(axis.text = element_text(size = 12), axis.title = element_text(size = 17))
+
+
+# Simple Slopes 5
+lam_svn_slopes <- filter(asbXcu_data, (graphmetric == "lam_svn") & (param == "simp_hi" | param == "simp_mn" | param == "simp_lo"))
+kable(lam_svn_slopes[c(2:4,12,13)], caption = "Simple Slopes (Lambda of SN/VAN)") %>% kable_styling(full_width = TRUE)
+
+lam_svn_model <- lm(svan_Lambda_AUC ~ wav2_asb + wav2_cuSelf + wav2_asb:wav2_cuSelf + twin_age_mo + twin_sex + race + Mutliband + meanFD + pc_moincome, data = final_data)
+
+#sim_slopes(lam_svn_model, pred = wav2_cuSelf, modx = wav2_asb, jnplot = FALSE)
+ros <- data.frame(xmin = 0, xmax = 0.61,
+                  ymin = 39, ymax = 56)
+
+interact_plot(lam_svn_model, pred = wav2_asb, modx = wav2_cuSelf,
+                                interval = TRUE, rug = TRUE, rug.sides = "bl",
+                                modx.labels = c("-1 SD", "Mean", "+1 SD"),
+                                colors = c("#F3DD62", "#F3C062", "#F6271A"),
+                                x.label = "Antisocial Behavior", y.label = "Lambda of SN/VAN",
+                                legend.main = "CU Traits", data = final_data) +
+  geom_rect(data=ros, aes(xmin=xmin, xmax=xmax, ymin=ymin, ymax=ymax),fill="lightgray", linetype=0, alpha=.3, inherit.aes=FALSE) +
+  theme_minimal() +
+  theme(axis.text = element_text(size = 12), axis.title = element_text(size = 17))
+
+
+```
+
+
+#### Windsorized Data
+With windsorized data, only the interaction for lambda of the SN/VAN remains significant.
+
+``` {r abXcu_Interactions_wnsr, echo = FALSE}
+neur_abXcu <- filter(asbXcu_data_wnsr, pval < .05 & param == "asbxcu")
+kable(neur_abXcu[,c(2,6,7,12,13,14)], caption = "Windsorized") %>% kable_styling(full_width = TRUE)
+
+# Simple Slopes 1
+lam_fpn_slopes <- filter(asbXcu_data_wnsr, (graphmetric == "lam_fpn") & (param == "simp_hi" | param == "simp_mn" | param == "simp_lo"))
+kable(lam_fpn_slopes[c(2:4,12,13)], caption = "Simple Slopes (Lambda of FPN)") %>% kable_styling(full_width = TRUE)
+
+# Simple Slopes 2
+mod_slopes <- filter(asbXcu_data_wnsr, (graphmetric == "mod") & (param == "simp_hi" | param == "simp_mn" | param == "simp_lo"))
+kable(mod_slopes[c(2:4,12,13)], caption = "Simple Slopes (Modularity)") %>% kable_styling(full_width = TRUE)
+
+# Simple Slopes 3
+lam_svn_slopes <- filter(asbXcu_data_wnsr, (graphmetric == "lam_svn") & (param == "simp_hi" | param == "simp_mn" | param == "simp_lo"))
+kable(lam_svn_slopes[c(2:4,12,13)], caption = "Simple Slopes (Lambda of SN/VAN)") %>% kable_styling(full_width = TRUE)
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
